@@ -2,40 +2,7 @@
 #include <libguile.h>
 #include "libpq-fe.h"
 
-void
-print_row_info (PGresult *res, int row, int numCols)
-{
-  printf ("ROW INFO\n\n");
-  for (int i = 0; i < numCols; i++)
-    {
-      printf ("%s ", PQfname (res, i));
-      printf ("%s\n", PQgetvalue (res, row, i));
-    }
-  printf ("\n");
-}
-
-void
-result_info (PGresult *res)
-{
-  printf ("RESULT OVERVIEW\n\n");
-  printf ("%s\n", PQresStatus(PQresultStatus(res)));
-  printf ("Number of tuples: %d\n\n", PQntuples(res));
-
-  int numCols = PQnfields(res);
-  printf ("Number of columns: %d\n", numCols);
-  
-  for (int i = 0; i < PQntuples(res); i++)
-    print_row_info(res, i, numCols);
-  printf ("\n");
-
-  PQclear (res);
-}
-
-void
-dump_query (PGconn *conn, const char *query)
-{
-  result_info (PQexec(conn, query));
-}
+#include "pq_driver.h"
 
 typedef struct
 {
@@ -67,7 +34,7 @@ make_connection (SCM init_string)
   db_connection *conn = (db_connection *)
     scm_gc_malloc (sizeof (db_connection), "db_connection");
 
-  conn->pg_conn = PQconnectdb (params); 
+  conn->pg_conn = get_conn (params); 
 
   return scm_make_foreign_object_1 (postgres_conn_type, conn);
 }
