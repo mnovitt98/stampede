@@ -75,13 +75,9 @@ make_connection (SCM init_string)
 static SCM
 check_connection_status (SCM conn_obj)
 {
-  /* assert */
   scm_assert_foreign_object_type (postgres_conn_type, conn_obj);
-
-  /* unpack */
   db_connection *conn = scm_foreign_object_ref (conn_obj, 0);
 
-  /* return meaningful value */
   return scm_from_bool (PQstatus(conn->pg_conn) == CONNECTION_OK);
 }
 
