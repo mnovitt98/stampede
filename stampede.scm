@@ -3,7 +3,15 @@
 ;; at the extension level that you plan to use elsewhere, INCLUDING within this
 ;; module file
 (define-module (stampede)
-  #:export (make-connection params conn-from-params good-conn? dump-exec))
+  #:export (make-connection
+            params
+            conn-from-params
+            good-conn?
+            dump-exec
+            make-result
+            get-nth
+            result-length
+            fetch-all))
 
 (load-extension "libguile-stampede" "init_stampede")
 
@@ -19,3 +27,13 @@
                              (value (cdr x)))
                          (string-join (list param value) "=")))
                      alist))))
+
+(define (get-all-tuples res)
+  (do ((i 0 (1+ i))
+       (acc '()))
+      ((= i (result-length res))
+       acc)
+    (set! acc (cons (get-nth res i) acc))))
+
+(define (fetch-all conn query)
+  (get-all-tuples (make-result conn query)))

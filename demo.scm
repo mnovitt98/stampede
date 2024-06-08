@@ -5,4 +5,5 @@
 (define query "SELECT * FROM InventoryItem;")
 
 (when (good-conn? conn)
-  (dump-exec conn query))
+  (display (fetch-all conn query))
+  (display (fetch-all conn query)))
