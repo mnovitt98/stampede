@@ -7,6 +7,8 @@
             conn-from-params
             good-conn?
             dump-exec
+            res-status
+            get-res-mesg
             get-result
             get-presult
             get-nth
@@ -43,3 +45,8 @@
     (unless (good-res? res)
       (error "Bad Result"))
     (get-all-tuples res)))
+
+(define (get-res-mesg res)
+  (if (good-res? res)
+      "Nothing to see here - good result.\n"
+      (res-status res)))

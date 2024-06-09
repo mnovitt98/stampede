@@ -12,6 +12,7 @@
 (when (good-conn? conn)
   (let ((res (get-presult conn insert-query insert-params)))
     (when (good-res? res)
+      (display (get-res-mesg res))
       (display "Inserting ")
       (display insert-params)
       (newline)

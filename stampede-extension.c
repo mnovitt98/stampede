@@ -10,13 +10,12 @@
 typedef struct
 {
   PGconn *pg_conn;
-  SCM name;
-} db_connection;
+} connection;
 
-static SCM postgres_conn_type;
+static SCM postgres_connection_type;
 
 static void
-init_postgres_conn_type (void)
+init_postgres_connection_type (void)
 {
   SCM name, slots;
   scm_t_struct_finalize finalizer;
@@ -25,41 +24,41 @@ init_postgres_conn_type (void)
   slots = scm_list_1 (scm_from_utf8_symbol ("data"));
   finalizer = NULL;
 
-  postgres_conn_type =
+  postgres_connection_type =
     scm_make_foreign_object_type (name, slots, finalizer);
 }
 
 static SCM
-make_connection (SCM init_string)
+make_connection (SCM params)
 {
-  char *params = scm_to_locale_string (init_string) ;
+  char *c_params = scm_to_locale_string (params) ;
+  
+  connection *c_conn = (connection *)
+    scm_gc_malloc (sizeof (connection), "connection");
 
-  db_connection *conn = (db_connection *)
-    scm_gc_malloc (sizeof (db_connection), "db_connection");
+  c_conn->pg_conn = get_conn (c_params); 
 
-  conn->pg_conn = get_conn (params); 
-
-  return scm_make_foreign_object_1 (postgres_conn_type, conn);
+  return scm_make_foreign_object_1 (postgres_connection_type, c_conn);
 }
 
 static SCM
-check_connection_status (SCM conn_obj)
+check_connection_status (SCM conn)
 {
-  scm_assert_foreign_object_type (postgres_conn_type, conn_obj);
-  db_connection *conn = scm_foreign_object_ref (conn_obj, 0);
+  scm_assert_foreign_object_type (postgres_connection_type, conn);
+  connection *c_conn = scm_foreign_object_ref (conn, 0);
 
-  return scm_from_bool (PQstatus(conn->pg_conn) == CONNECTION_OK);
+  return scm_from_bool (PQstatus(c_conn->pg_conn) == CONNECTION_OK);
 }
 
 static SCM
-dump_stmt_res (SCM conn_obj, SCM stmt)
+dump_query_result (SCM conn, SCM query)
 {
-  scm_assert_foreign_object_type ( postgres_conn_type,conn_obj);
+  scm_assert_foreign_object_type (postgres_connection_type, conn);
 
-  char *Stmt = scm_to_locale_string (stmt);
-  db_connection *conn = scm_foreign_object_ref (conn_obj, 0);
+  char *c_query = scm_to_locale_string (query);
+  connection *c_conn = scm_foreign_object_ref (conn, 0);
 
-  dump_query (conn->pg_conn, Stmt);
+  dump_query (c_conn->pg_conn, c_query);
 
   return SCM_UNSPECIFIED;
 }
@@ -74,10 +73,18 @@ typedef struct
   int num_fields;    
   int num_results;
   ExecStatusType status_code;
-  SCM name;
+  char *error_message;
 } query_result;
 
 static SCM postgres_result_type;
+
+void result_finalizer(SCM result)
+{
+  scm_assert_foreign_object_type (postgres_result_type, result);
+  query_result *qr = scm_foreign_object_ref (result, 0);
+
+  PQclear(qr->pg_res);
+}
 
 static void
 init_postgres_result_type (void)
@@ -87,39 +94,38 @@ init_postgres_result_type (void)
 
   name = scm_from_utf8_symbol ("pg-res");
   slots = scm_list_1 (scm_from_utf8_symbol ("data"));
-  finalizer = NULL;
+  finalizer = result_finalizer;
 
   postgres_result_type =
     scm_make_foreign_object_type (name, slots, finalizer);
 }
 
 static SCM
-make_result (SCM conn_obj, SCM query)
+make_result (SCM conn, SCM query)
 {
-  scm_assert_foreign_object_type (postgres_conn_type, conn_obj);
-  db_connection *conn = scm_foreign_object_ref (conn_obj, 0);
-  char *Query = scm_to_locale_string (query) ;
+  scm_assert_foreign_object_type (postgres_connection_type, conn);
+  connection *c_conn = scm_foreign_object_ref (conn, 0);
+  char *c_query = scm_to_locale_string (query) ;
   
   query_result *qr = (query_result *)
     scm_gc_malloc (sizeof (query_result), "query_result");
 
-  qr->pg_res = PQexec(conn->pg_conn, Query);
+  qr->pg_res = PQexec(c_conn->pg_conn, c_query);
   qr->num_results = PQntuples(qr->pg_res);
   qr->num_fields  = PQnfields(qr->pg_res);
-  qr->status_code = PQresultStatus(qr->pg_res);  
+  qr->status_code = PQresultStatus(qr->pg_res);
+  qr->error_message = PQresultErrorMessage(qr->pg_res);  
 
   return scm_make_foreign_object_1 (postgres_result_type, qr);
 }
 
 static SCM
-make_result_with_params (SCM conn_obj, SCM query, SCM params)
+make_result_with_params (SCM conn, SCM query, SCM params)
 {
-  /* coerce values */
-  scm_assert_foreign_object_type (postgres_conn_type, conn_obj);
-  db_connection *conn = scm_foreign_object_ref (conn_obj, 0);
-  char *Query = scm_to_locale_string (query) ;
+  scm_assert_foreign_object_type (postgres_connection_type, conn);
+  connection *c_conn = scm_foreign_object_ref (conn, 0);
+  char *c_query = scm_to_locale_string (query);
 
-  /* allocate */
   query_result *qr = (query_result *)
     scm_gc_malloc (sizeof (query_result), "query_result");
 
@@ -139,8 +145,8 @@ make_result_with_params (SCM conn_obj, SCM query, SCM params)
     }
   
   /* call and pack */
-  qr->pg_res = PQexecParams(conn->pg_conn,
-                            Query,
+  qr->pg_res = PQexecParams(c_conn->pg_conn,
+                            c_query,
                             nParams,
                             NULL, /* paramTypes */
                             paramValues,
@@ -150,34 +156,44 @@ make_result_with_params (SCM conn_obj, SCM query, SCM params)
   qr->num_results = PQntuples(qr->pg_res);
   qr->num_fields  = PQnfields(qr->pg_res);
   qr->status_code = PQresultStatus(qr->pg_res);
-
+  qr->error_message = PQresultErrorMessage(qr->pg_res);
+  
   return scm_make_foreign_object_1 (postgres_result_type, qr);
 }
 
 static SCM
-good_result (SCM result_obj)
+good_result (SCM result)
 {
-  scm_assert_foreign_object_type (postgres_result_type, result_obj);
-  query_result *qr = scm_foreign_object_ref (result_obj, 0);
+  scm_assert_foreign_object_type (postgres_result_type, result);
+  query_result *qr = scm_foreign_object_ref (result, 0);
 
   return scm_from_bool (   qr->status_code == PGRES_TUPLES_OK
                         || qr->status_code == PGRES_COMMAND_OK);
 }
 
 static SCM
-get_result_ntuples (SCM result_obj)
+get_status_message (SCM result)
 {
-  scm_assert_foreign_object_type (postgres_result_type, result_obj);
-  query_result *qr = scm_foreign_object_ref (result_obj, 0);
+  scm_assert_foreign_object_type (postgres_result_type, result);
+  query_result *qr = scm_foreign_object_ref (result, 0);
+
+  return scm_from_locale_string (qr->error_message);
+}
+
+static SCM
+get_result_ntuples (SCM result)
+{
+  scm_assert_foreign_object_type (postgres_result_type, result);
+  query_result *qr = scm_foreign_object_ref (result, 0);
 
   return scm_from_int (qr->num_results);
 }
 
 static SCM
-get_result_nfields (SCM result_obj)
+get_result_nfields (SCM result)
 {
-  scm_assert_foreign_object_type (postgres_result_type, result_obj);
-  query_result *qr = scm_foreign_object_ref (result_obj, 0);
+  scm_assert_foreign_object_type (postgres_result_type, result);
+  query_result *qr = scm_foreign_object_ref (result, 0);
 
   return scm_from_int (qr->num_fields);
 }
@@ -196,10 +212,10 @@ get_cons_rep (const tuple *tup, const PGresult *res, int row, int col)
 }
 
 static SCM
-get_result_tuple (SCM result_obj, SCM row)
+get_result_tuple (SCM result, SCM row)
 {
-  scm_assert_foreign_object_type (postgres_result_type, result_obj);
-  query_result *qr = scm_foreign_object_ref (result_obj, 0);
+  scm_assert_foreign_object_type (postgres_result_type, result);
+  query_result *qr = scm_foreign_object_ref (result, 0);
 
   int row_i = scm_to_int(row);
 
@@ -218,12 +234,13 @@ get_result_tuple (SCM result_obj, SCM row)
 void
 init_stampede(void)
 {
-  init_postgres_conn_type ();
+  init_postgres_connection_type ();
   init_postgres_result_type ();  
 
   scm_c_define_gsubr ("make-connection", 1, 0, 0, make_connection);
   scm_c_define_gsubr ("good-conn?", 1, 0, 0, check_connection_status);
-  scm_c_define_gsubr ("dump-exec", 2, 0, 0, dump_stmt_res);
+  scm_c_define_gsubr ("dump-exec", 2, 0, 0, dump_query_result);
+  scm_c_define_gsubr ("res-status", 1, 0, 0, get_status_message);
   scm_c_define_gsubr ("get-result", 2, 0, 0, make_result);
   scm_c_define_gsubr ("get-presult", 3, 0, 0, make_result_with_params);  
   scm_c_define_gsubr ("get-nth", 2, 0, 0, get_result_tuple);
