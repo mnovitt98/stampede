@@ -3,15 +3,25 @@
 #include "libpq-fe.h"
 #include "pq_driver.h"
 
+void
+print_array (const char *strs[], int num_strs)
+{
+  printf ("%s", strs[0]);
+  for (int i = 1; i < num_strs; i++)
+    printf (" %s", strs[i]);
+  printf("\n");
+}
+
 tuple *
 pack_tuple (PGresult *res, int row)
 {
   tuple *tup = (tuple *) malloc(sizeof (tuple));
-
-  tup->numFields = PQnfields(res);
-  for (int i = 0; i < tup->numFields; i++)
+  tup->num_fields = PQnfields(res);
+  
+  for (int i = 0; i < tup->num_fields; i++)
     {
-      tup->fields[i] = (void *) PQgetvalue (res, row, i);
+      tup->attributes[i] = (char *) PQfname(res, i);
+      tup->values[i] = (void *) PQgetvalue (res, row, i);
     }
   
   return tup;
@@ -20,16 +30,13 @@ pack_tuple (PGresult *res, int row)
 void
 print_tuple (tuple *tup)
 {
-  for (int i = 0; i < tup->numFields; i++)
-    printf ("%s ", (char *) tup->fields[i] );
-  printf("\n");
+  print_array (tup->attributes, tup->num_fields);
 }
 
 void
-print_row_info (PGresult *res, int row, int numCols)
+print_attributes (PGresult *res)
 {
-  printf ("ROW INFO\n");
-  for (int i = 0; i < numCols; i++)
+  for (int i = 0; i < PQnfields(res); i++)
     {
       printf ("%s ", PQfname (res, i));
     }
@@ -43,13 +50,15 @@ result_info (PGresult *res)
   printf ("%s\n", PQresStatus(PQresultStatus(res)));
   printf ("Number of tuples: %d\n", PQntuples(res));
 
-  int numCols = PQnfields(res);
-  printf ("Number of columns: %d\n\n", numCols);
-  print_row_info(res, 0, numCols);
+  int num_cols = PQnfields(res);
+  printf ("Number of columns: %d\n\n", num_cols);
+  print_attributes(res);
     
   for (int i = 0; i < PQntuples(res); i++)
   {
-    print_tuple(pack_tuple(res, i)); /* this is a memory leak lol */
+    tuple *tup = pack_tuple(res, i);
+    print_tuple(tup);
+    free(tup);
   }
   printf ("\n");
 
@@ -62,9 +71,8 @@ dump_query (PGconn *conn, const char *query)
   result_info (PQexec(conn, query));
 }
 
-PGconn
-*get_conn(const char *params)
+PGconn *
+get_conn(const char *params)
 {
   return PQconnectdb(params);
 }
-

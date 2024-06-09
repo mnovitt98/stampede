@@ -5,10 +5,14 @@
 
 #define MAX_TABLE_FIELDS 100
 
+void
+print_array (const char *strs[], int num_strs);
+
 typedef struct
 {
-  int numFields;
-  void *fields[MAX_TABLE_FIELDS];
+  int num_fields;
+  void *attributes[MAX_TABLE_FIELDS];
+  void *values[MAX_TABLE_FIELDS];  
 } tuple;
 
 tuple *
@@ -18,7 +22,7 @@ void
 print_tuple (tuple *tup);
 
 void
-print_row_info (PGresult *res, int row, int numCols);
+print_attributes (PGresult *res);
 
 void
 result_info (PGresult *res);

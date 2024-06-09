@@ -1,4 +1,3 @@
-
 ;; looks like you need to export all of the "behind the scenes" functions defined
 ;; at the extension level that you plan to use elsewhere, INCLUDING within this
 ;; module file
@@ -8,10 +7,14 @@
             conn-from-params
             good-conn?
             dump-exec
-            make-result
+            get-result
+            get-presult
             get-nth
             result-length
-            fetch-all))
+            result-fields
+            good-res?
+            fetch-all
+            get-all-tuples))
 
 (load-extension "libguile-stampede" "init_stampede")
 
@@ -36,4 +39,7 @@
     (set! acc (cons (get-nth res i) acc))))
 
 (define (fetch-all conn query)
-  (get-all-tuples (make-result conn query)))
+  (let ((res (make-result conn query)))
+    (unless (good-res? res)
+      (error "Bad Result"))
+    (get-all-tuples res)))
